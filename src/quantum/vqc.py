@@ -15,6 +15,16 @@ from src.quantum.circuits.ansatz import create_ansatz, get_ansatz_info
 from src.utils.config import QuantumConfig, ExperimentResult
 
 
+def _make_z_observable(qubit_idx: int, n_qubits: int) -> SparsePauliOp:
+    """Create Z_i observable as a proper n-qubit Pauli string.
+    
+    Example: _make_z_observable(0, 4) -> ZIII
+             _make_z_observable(1, 4) -> IZII
+    """
+    pauli_str = 'I' * qubit_idx + 'Z' + 'I' * (n_qubits - qubit_idx - 1)
+    return SparsePauliOp.from_list([(pauli_str, 1)], num_qubits=n_qubits)
+
+
 def train_vqc(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -68,25 +78,32 @@ def train_vqc(
     full_circuit.compose(feature_map, inplace=True)
     full_circuit.compose(ansatz, inplace=True)
     
-    # Observables using from_list to match number of qubits
+    # Observables: Z on first min(n_classes, n_qubits) qubits
+    # For binary (n_classes=2): use single Z observable -> scalar output
+    # For multi-class: use one Z per qubit up to n_qubits
+    
     if n_classes == 2:
-        obs_list = [SparsePauliOp.from_list([('Z', 1)], num_qubits=n_qubits)]
+        obs = _make_z_observable(0, n_qubits)
+        qnn = EstimatorQNN(
+            circuit=full_circuit,
+            estimator=StatevectorEstimator(),
+            observables=obs,
+            input_params=feature_map.parameters,
+            weight_params=ansatz.parameters,
+        )
+        multi_class = False
     else:
-        obs_list = [
-            SparsePauliOp.from_list([(f'Z{i}', 1)], num_qubits=n_qubits)
-            for i in range(min(n_classes, n_qubits))
-        ]
+        n_obs = min(n_classes, n_qubits)
+        obs_list = [_make_z_observable(i, n_qubits) for i in range(n_obs)]
+        qnn = EstimatorQNN(
+            circuit=full_circuit,
+            estimator=StatevectorEstimator(),
+            observables=obs_list,
+            input_params=feature_map.parameters,
+            weight_params=ansatz.parameters,
+        )
+        multi_class = True
     
-    # Build QNN
-    qnn = EstimatorQNN(
-        circuit=full_circuit,
-        estimator=StatevectorEstimator(),
-        observables=obs_list[0] if n_classes == 2 else obs_list,
-        input_params=feature_map.parameters,
-        weight_params=ansatz.parameters,
-    )
-    
-    from scipy.optimize import minimize
     from sklearn.preprocessing import LabelEncoder
     
     # Encode labels
@@ -100,16 +117,22 @@ def train_vqc(
         return {p: v for p, v in zip(ansatz.parameters, vec)}
     
     def vqc_loss(weights_vec):
-        """Classification loss using QNN predictions."""
-        weights_dict = unpack_weights(weights_vec)
-        preds = qnn.forward(X_train, weights_dict)
+        """Classification loss using QNN predictions. Weights are a numpy array."""
+        preds = qnn.forward(X_train, weights_vec)
         
-        if n_classes == 2:
-            preds_binary = (preds > 0).astype(int).flatten()
-            loss = np.mean((preds_binary - y_train_enc) ** 2)
-        else:
-            preds_class = np.argmax(preds, axis=1)
+        if multi_class:
+            # preds shape: (n_samples, n_obs) -> take argmax
+            if preds.ndim == 1:
+                preds_class = (preds > 0).astype(int)
+            else:
+                preds_class = np.argmax(preds, axis=1)
             loss = np.mean((preds_class - y_train_enc) ** 2)
+        else:
+            # preds shape: (n_samples,) or (n_samples, 1) -> threshold at 0
+            if preds.ndim > 1:
+                preds = preds.flatten()
+            preds_binary = (preds > 0).astype(int)
+            loss = np.mean((preds_binary - y_train_enc) ** 2)
         
         return float(loss)
     
@@ -137,12 +160,20 @@ def train_vqc(
     best_weights = opt_result.x
     
     # Evaluate on test set
-    test_preds = qnn.forward(X_test, unpack_weights(best_weights))
+    test_preds = qnn.forward(X_test, best_weights)
     
-    if n_classes == 2:
-        test_preds_binary = (test_preds > 0).astype(int).flatten()
+    if multi_class:
+        # EstimatorQNN.forward with list observables may return (n_samples,) or (n_samples, n_obs)
+        # For 3 classes with 2 observables: shape is (n_samples, 2) -> argmax
+        # For edge cases: handle 1D array
+        if test_preds.ndim == 1:
+            test_preds_class = (test_preds > 0).astype(int)
+        else:
+            test_preds_class = np.argmax(test_preds, axis=1)
     else:
-        test_preds_binary = np.argmax(test_preds, axis=1)
+        if test_preds.ndim > 1:
+            test_preds = test_preds.flatten()
+        test_preds_class = (test_preds > 0).astype(int)
     
     from sklearn.metrics import (
         accuracy_score, balanced_accuracy_score, f1_score,
@@ -150,12 +181,12 @@ def train_vqc(
     )
     
     metrics = {
-        'accuracy': float(accuracy_score(y_test_enc, test_preds_binary)),
-        'balanced_accuracy': float(balanced_accuracy_score(y_test_enc, test_preds_binary)),
-        'macro_f1': float(f1_score(y_test_enc, test_preds_binary, average='macro')),
-        'precision': float(precision_score(y_test_enc, test_preds_binary, average='macro', zero_division=0)),
-        'recall': float(recall_score(y_test_enc, test_preds_binary, average='macro')),
-        'confusion_matrix': confusion_matrix(y_test_enc, test_preds_binary).tolist(),
+        'accuracy': float(accuracy_score(y_test_enc, test_preds_class)),
+        'balanced_accuracy': float(balanced_accuracy_score(y_test_enc, test_preds_class)),
+        'macro_f1': float(f1_score(y_test_enc, test_preds_class, average='macro')),
+        'precision': float(precision_score(y_test_enc, test_preds_class, average='macro', zero_division=0)),
+        'recall': float(recall_score(y_test_enc, test_preds_class, average='macro')),
+        'confusion_matrix': confusion_matrix(y_test_enc, test_preds_class).tolist(),
     }
     
     runtime = time.time() - start_time

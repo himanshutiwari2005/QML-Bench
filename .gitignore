@@ -216,3 +216,17 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+results/*.json
+results/*.csv
+results/*.png
+results/*.pdf
+results/figures/
+
+# Notebooks (optional, user-specific)
+notebooks/*.ipynb
+
+# Python bytecode (already covered by __pycache__/ but be explicit)
+__pycache__/
+*.py[codz]
+*$py.class

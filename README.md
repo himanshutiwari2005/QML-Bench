@@ -18,7 +18,7 @@ Under controlled experimental conditions, characterize how quantum-kernel and va
 
 ## Project Structure
 
-```
+```text
 QML-Bench/
 ├── src/
 │   ├── datasets/          # Dataset loaders (synthetic + real)
@@ -33,33 +33,48 @@ QML-Bench/
 │   │   ├── xgboost_model.py
 │   │   └── benchmark.py   # Unified classical benchmark runner
 │   ├── quantum/           # Quantum ML methods
-│   │   ├── feature_maps/  # Feature map factory (ZZ, Pauli, Z)
+│   │   ├── feature_maps/  # Feature map factory (ZZ, Pauli, Z, linear)
+│   │   │   └── factory.py
 │   │   ├── kernels/       # Quantum kernel method with caching
+│   │   │   └── quantum_kernel.py
 │   │   ├── circuits/      # Parameterized ansatz circuits
+│   │   │   └── ansatz.py
 │   │   ├── optimizers/    # VQC training loop with SPSA/COBYLA
+│   │   │   └── vqc_optimizer.py
 │   │   └── vqc.py         # VQC experiment runner
 │   ├── experiments/       # Experiment orchestration
 │   │   └── benchmark.py   # Main QMLBenchmark class
 │   ├── evaluation/        # Metrics and statistical analysis
 │   │   └── metrics.py     # Aggregate, t-test, Wilcoxon
 │   ├── noise/             # Noise model construction
-│   │   ├── __init__.py
 │   │   └── models.py      # Depolarizing, readout, combined noise
 │   ├── visualization/     # Plot generation
-│   │   └── plots.py       # All required figures
+│   │   └── plots.py       # All required figures (10+ plot types)
 │   └── utils/             # Config, preprocessing, version tracking
-│       ├── config.py      # Dataclass configs
+│       ├── config.py      # Dataclass configs (Dataset/Classical/Quantum/Experiment)
 │       ├── preprocessing.py  # Standardization + PCA + range scaling
 │       └── version.py     # Environment version logging
-├── configs/               # Experiment configuration files
-├── results/               # Experiment outputs (JSON, CSV, figures)
-├── notebooks/             # Jupyter notebooks for analysis
-├── tests/                 # Unit tests
-├── docs/                  # Documentation and research report
-├── run_benchmark.py       # Main entry point
-├── TASK.md               # Development task plan
-└── PROMPT.md             # Full project specification
+├── tests/                 # Unit tests (preprocessing, config, metrics, circuits)
+│   ├── test_preprocessing.py
+│   ├── test_config.py
+│   ├── test_metrics.py
+│   └── test_circuit_construction.py
+├── results/               # Generated experiment outputs (NOT tracked in git)
+│   └── README.md          # Results directory notes
+├── run_benchmark.py       # CLI entry point
+├── TASK.md                # Development task plan (phases 0-13)
+├── PROMPT.md              # Full project specification (source of truth)
+├── LICENSE                # MIT
+└── .gitignore             # Excludes results/, bytecode, venv, notebooks, configs/
 ```
+
+### What's NOT in the repo
+
+The following directories exist as placeholders or hold generated/user-specific content — none are tracked in git:
+
+| `results/` | JSON/CSV experiment outputs, generated figures | No — regenerate with `run_benchmark.py` |
+
+**Source code** lives exclusively under `src/` plus `run_benchmark.py` at the root. That's the entire tracked build.
 
 ## Installation
 
