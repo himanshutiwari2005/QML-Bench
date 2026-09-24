@@ -81,7 +81,10 @@ def main():
         print("Running QUICK smoke test...")
         config.classical = config.classical[:2]  # Just LogReg and SVM
         config.quantum = [config.quantum[0]] if config.quantum else []  # Just first config
-        config.n_seeds = 1
+        config.n_seeds = 1  # Quick test always uses 1 seed
+    else:
+        # Apply user-specified seed count
+        config.n_seeds = args.seeds
     
     if args.noise_study:
         print("Running noise sensitivity study...")
